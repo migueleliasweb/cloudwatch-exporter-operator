@@ -1,0 +1,7 @@
+version: "3.7"
+services:
+  kubebuilder:
+    build:
+      context: .
+      dockerfile: kubebuilder.Dockerfile
+      image: cloudwatch-exporter-operator-kubebuilder
