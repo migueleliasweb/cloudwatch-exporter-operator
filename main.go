@@ -1,72 +1,72 @@
-/*
-Copyright 2020 https://github.com/migueleliasweb.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package main
 
 import (
-	"flag"
-	"os"
+	"log"
+	"path/filepath"
+	"time"
 
-	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	// +kubebuilder:scaffold:imports
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
 )
 
-var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
-)
+func configureClientset() *kubernetes.Clientset {
+	homeDir := homedir.HomeDir()
+	kubeconfig := filepath.Join(homeDir, ".kube", "config")
 
-func init() {
-	_ = clientgoscheme.AddToScheme(scheme)
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 
-	// +kubebuilder:scaffold:scheme
+	if err != nil {
+		panic(err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+
+	if err != nil {
+		panic(err)
+	}
+
+	return clientset
+}
+
+func configureConfigmapInformer(clientset *kubernetes.Clientset) cache.SharedIndexInformer {
+	factory := informers.NewSharedInformerFactoryWithOptions(
+		clientset,
+		time.Second*60,
+		informers.WithNamespace("default"),
+		informers.WithTweakListOptions(func(listOptions *metav1.ListOptions) {
+			listOptions.LabelSelector = "findme=foo"
+		}),
+	)
+
+	configMapInformer := factory.Core().V1().ConfigMaps().Informer()
+	configMapInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			configmap := obj.(*v1.ConfigMap)
+			log.Printf("Configmap Added to Store: %s", configmap.GetName())
+		},
+		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
+			configmap := oldObj.(*v1.ConfigMap)
+			log.Printf("Configmap updated in Store: %s", configmap.GetName())
+		},
+	})
+
+	return configMapInformer
 }
 
 func main() {
-	var metricsAddr string
-	var enableLeaderElection bool
-	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
-	flag.Parse()
+	clientset := configureClientset()
 
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
+	informer := configureConfigmapInformer(clientset)
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:             scheme,
-		MetricsBindAddress: metricsAddr,
-		Port:               9443,
-		LeaderElection:     enableLeaderElection,
-		LeaderElectionID:   "92272911.migueleliasweb.github.io/cloudwatch-exporter-operator",
-	})
-	if err != nil {
-		setupLog.Error(err, "unable to start manager")
-		os.Exit(1)
-	}
+	stopper := make(chan struct{})
+	defer runtime.HandleCrash()
+	defer close(stopper)
 
-	// +kubebuilder:scaffold:builder
-
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
-	}
+	informer.Run(stopper)
 }
