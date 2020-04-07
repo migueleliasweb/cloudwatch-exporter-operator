@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"path/filepath"
 	"time"
@@ -34,6 +35,10 @@ func configureClientset() *kubernetes.Clientset {
 	return clientset
 }
 
+func combineConfigMaps(configmapList []*v1.ConfigMap) {
+	fmt.Println(configmapList)
+}
+
 func configureConfigmapInformer(clientset *kubernetes.Clientset) cache.SharedIndexInformer {
 	factory := informers.NewSharedInformerFactoryWithOptions(
 		clientset,
@@ -48,11 +53,21 @@ func configureConfigmapInformer(clientset *kubernetes.Clientset) cache.SharedInd
 	configMapInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			configmap := obj.(*v1.ConfigMap)
-			log.Printf("Configmap Added to Store: %s", configmap.GetName())
+			log.Printf("Configmap Added to store: %s", configmap.GetName())
 		},
 		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
 			configmap := oldObj.(*v1.ConfigMap)
-			log.Printf("Configmap updated in Store: %s", configmap.GetName())
+
+			store := configMapInformer.GetStore()
+
+			//dunno what to do here =/
+			combineConfigMaps(store.List())
+
+			log.Printf("Configmap updated in store: %s", configmap.GetName())
+		},
+		DeleteFunc: func(obj interface{}) {
+			configmap := obj.(*v1.ConfigMap)
+			log.Printf("Configmap removed from store: %s", configmap.GetName())
 		},
 	})
 
