@@ -9,3 +9,4 @@
 * https://github.com/kubernetes/client-go/tree/master/examples
 * https://insujang.github.io/2020-02-13/programming-kubernetes-crd/#example-implementing-an-event-watcher-informer
 * https://kubernetes.io/docs/reference/using-api/api-concepts/
+* https://github.com/operator-framework/operator-sdk
